@@ -78,6 +78,71 @@ python orchestrator/main.py --suite performance --target hci
 python orchestrator/main.py --suite all --optimize-cost
 ```
 
+## Custom DevOps Agents
+
+This workspace includes specialized GitHub Copilot agents to help with different aspects of the hybrid infrastructure. Type `@agent-name` in Copilot chat to invoke them.
+
+### Available Agents
+
+#### @cost-analyzer
+**Cloud cost optimization specialist**
+
+Use when: analyzing cloud infrastructure costs; identifying cost-saving opportunities; optimizing resource allocation for AWS, Azure, or GCP; implementing auto-scaling strategies; choosing between spot instances, reserved instances, or on-demand; calculating ROI for infrastructure changes.
+
+```
+@cost-analyzer analyze our AWS infrastructure and suggest cost reductions
+```
+
+#### @pipeline
+**DevOps and CI/CD pipeline specialist**
+
+Use when: creating or optimizing Jenkins, GitHub Actions, Azure DevOps, or GitLab pipelines; setting up testing infrastructure; configuring test orchestration and distribution; implementing DevSecOps practices; optimizing build and deployment workflows.
+
+```
+@pipeline create a Jenkins pipeline for deploying microservices
+```
+
+#### @security-scanner
+**DevSecOps and security automation specialist**
+
+Use when: implementing security scanning in CI/CD pipelines; integrating SAST, DAST, or SCA tools; configuring vulnerability scanning; setting up secret detection; implementing security policies as code.
+
+```
+@security-scanner add SAST scanning to our CI/CD pipeline
+```
+
+#### @terraform
+**Infrastructure as Code specialist**
+
+Use when: creating or modifying Terraform configurations; provisioning cloud resources on AWS, Azure, GCP; managing infrastructure state; implementing multi-cloud deployments; troubleshooting Terraform errors.
+
+```
+@terraform provision an AWS VPC with public and private subnets
+```
+
+#### @test-optimizer
+**Test execution optimization specialist**
+
+Use when: analyzing test suite performance; implementing parallel test execution; distributing tests across cloud and on-premise infrastructure; reducing test execution time; debugging slow tests.
+
+```
+@test-optimizer reduce our test execution time from 2 hours to under 10 minutes
+```
+
+### How Agents Are Loaded
+
+**Agent Definition**: Each agent is defined in `.github/agents/*.agent.md` with YAML frontmatter specifying its capabilities, tools, and when to invoke it.
+
+**Discovery**: VS Code Copilot automatically scans `.github/agents/` for files with `.agent.md` extension and `user-invocable: true` in the frontmatter.
+
+**Activation**: Agents appear in the Copilot dropdown when you type `@`. If they don't appear immediately:
+1. Reload Window: `Ctrl+Shift+P` → "Developer: Reload Window"
+2. Or restart Copilot: `Ctrl+Shift+P` → "GitHub Copilot: Restart Extension Host"
+
+**Invocation**: When called, Copilot reads the full agent instructions and executes with specialized domain knowledge for that area.
+
+See [.github/AGENTS.md](.github/AGENTS.md) for complete agent documentation.
+
 ## Project Structure
 
 ```
