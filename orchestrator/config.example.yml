@@ -1,0 +1,84 @@
+# Example Configuration for Hybrid Test Infrastructure
+# Copy to config.yml and customize for your environment
+
+cloud_providers:
+  aws:
+    region: us-west-2
+    spot_instance_types:
+      - t3.large
+      - t3.xlarge
+      - t3a.large
+    max_spot_instances: 50
+    # AWS credentials from environment or AWS CLI config
+    
+  azure:
+    region: eastus
+    aks_cluster: test-aks-cluster
+    resource_group: rg-test-infrastructure
+    node_pool_size: [1, 20]  # min, max
+    # Azure credentials from az login or service principal
+
+on_premise:
+  hci:
+    provider: vsphere  # or 'nutanix'
+    endpoint: vcenter.company.local
+    username: administrator@vsphere.local
+    # password: set via environment variable VSPHERE_PASSWORD
+    datacenter: DC1
+    cluster: TEST-CLUSTER
+    datastore: DATASTORE-SSD
+    network: VM Network
+    
+    # Resource allocation
+    performance_vms: 3
+    load_test_vms: 5
+    database_vms: 2
+
+test_distribution:
+  # Map test types to infrastructure
+  unit_tests: cloud-spot
+  integration_tests: azure-aks
+  e2e_tests: azure-aks
+  performance_tests: hci
+  database_tests: hci
+  load_tests: hci
+
+cost_optimization:
+  enabled: true
+  max_hourly_spend: 100.0  # USD
+  max_daily_spend: 500.0   # USD
+  prefer_spot_instances: true
+  auto_scale_down: true
+  idle_timeout_minutes: 5
+  
+  # Cost alerts
+  alert_threshold_percentage: 80
+  alert_email: devops@company.com
+
+execution:
+  parallel_execution: true
+  max_parallel_batches: 10
+  test_timeout_minutes: 30
+  retry_failed_tests: true
+  max_retries: 2
+
+monitoring:
+  enable_metrics: true
+  metrics_port: 8080
+  enable_dashboard: true
+  dashboard_port: 3000
+  log_level: INFO
+
+notifications:
+  slack:
+    enabled: false
+    webhook_url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+    channel: "#test-results"
+  
+  email:
+    enabled: false
+    smtp_server: smtp.company.com
+    smtp_port: 587
+    from_address: test-orchestrator@company.com
+    to_addresses:
+      - team@company.com

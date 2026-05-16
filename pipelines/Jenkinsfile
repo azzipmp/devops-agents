@@ -1,0 +1,274 @@
+// Jenkins Pipeline for Hybrid Test Infrastructure
+// Demonstrates intelligent test distribution across cloud and on-premise
+
+pipeline {
+    agent none
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timestamps()
+        timeout(time: 2, unit: 'HOURS')
+    }
+    
+    environment {
+        AWS_DEFAULT_REGION = 'us-west-2'
+        ORCHESTRATOR_CONFIG = 'orchestrator/config.yml'
+    }
+    
+    stages {
+        stage('Parallel Testing') {
+            parallel {
+                stage('Unit Tests - Cloud Spot') {
+                    agent {
+                        kubernetes {
+                            cloud 'aws-spot'
+                            yaml '''
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test-type: unit
+spec:
+  containers:
+  - name: test-runner
+    image: python:3.11-slim
+    command:
+    - cat
+    tty: true
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1"
+      limits:
+        memory: "4Gi"
+        cpu: "2"
+'''
+                        }
+                    }
+                    steps {
+                        checkout scm
+                        
+                        sh '''
+                            pip install -r tests/requirements.txt
+                            pytest tests/unit \
+                                --junitxml=results-unit.xml \
+                                --cov=src \
+                                --cov-report=xml:coverage-unit.xml \
+                                -n auto \
+                                --tb=short
+                        '''
+                        
+                        junit 'results-unit.xml'
+                        publishCoverage adapters: [coberturaAdapter('coverage-unit.xml')]
+                    }
+                }
+                
+                stage('Integration Tests - Azure AKS') {
+                    agent {
+                        kubernetes {
+                            cloud 'azure-aks'
+                            yaml '''
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test-type: integration
+spec:
+  containers:
+  - name: test-runner
+    image: acrtestinfra.azurecr.io/test-runner:latest
+    command:
+    - cat
+    tty: true
+    resources:
+      requests:
+        memory: "4Gi"
+        cpu: "2"
+  - name: postgres
+    image: postgres:15
+    env:
+    - name: POSTGRES_PASSWORD
+      value: testpass
+  - name: redis
+    image: redis:7
+'''
+                        }
+                    }
+                    steps {
+                        checkout scm
+                        
+                        sh '''
+                            # Wait for dependencies
+                            sleep 10
+                            
+                            # Run integration tests
+                            pytest tests/integration \
+                                --junitxml=results-integration.xml \
+                                --tb=short
+                        '''
+                        
+                        junit 'results-integration.xml'
+                    }
+                }
+                
+                stage('E2E Tests - Azure AKS') {
+                    agent {
+                        kubernetes {
+                            cloud 'azure-aks'
+                            yaml '''
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test-type: e2e
+spec:
+  containers:
+  - name: test-runner
+    image: acrtestinfra.azurecr.io/test-runner:latest
+    command:
+    - cat
+    tty: true
+    resources:
+      requests:
+        memory: "4Gi"
+        cpu: "2"
+  - name: selenium
+    image: selenium/standalone-chrome:latest
+    ports:
+    - containerPort: 4444
+'''
+                        }
+                    }
+                    steps {
+                        checkout scm
+                        
+                        sh '''
+                            pytest tests/e2e \
+                                --junitxml=results-e2e.xml \
+                                --selenium-url=http://localhost:4444/wd/hub \
+                                --tb=short
+                        '''
+                        
+                        junit 'results-e2e.xml'
+                    }
+                }
+                
+                stage('Performance Tests - On-Prem HCI') {
+                    agent {
+                        label 'hci-performance'
+                    }
+                    steps {
+                        checkout scm
+                        
+                        sh '''
+                            # Run JMeter performance tests
+                            jmeter -n \
+                                -t tests/performance/load-test.jmx \
+                                -l results-performance.jtl \
+                                -e -o performance-report
+                            
+                            # Run Locust tests
+                            locust -f tests/performance/locustfile.py \
+                                --headless \
+                                --users 1000 \
+                                --spawn-rate 100 \
+                                --run-time 5m \
+                                --html results-locust.html
+                        '''
+                        
+                        publishHTML([
+                            reportDir: 'performance-report',
+                            reportFiles: 'index.html',
+                            reportName: 'JMeter Performance Report'
+                        ])
+                        
+                        publishHTML([
+                            reportDir: '.',
+                            reportFiles: 'results-locust.html',
+                            reportName: 'Locust Load Test Report'
+                        ])
+                    }
+                }
+                
+                stage('Database Tests - On-Prem HCI') {
+                    agent {
+                        label 'hci-database'
+                    }
+                    steps {
+                        checkout scm
+                        
+                        sh '''
+                            pytest tests/database \
+                                --junitxml=results-database.xml \
+                                --tb=short
+                        '''
+                        
+                        junit 'results-database.xml'
+                    }
+                }
+            }
+        }
+        
+        stage('Aggregate Results') {
+            agent any
+            steps {
+                script {
+                    // Collect all test results
+                    def testResults = junit '**/results-*.xml'
+                    
+                    // Calculate metrics
+                    def totalTests = testResults.totalCount
+                    def failedTests = testResults.failCount
+                    def passRate = ((totalTests - failedTests) / totalTests * 100).round(2)
+                    
+                    echo "Total Tests: ${totalTests}"
+                    echo "Failed Tests: ${failedTests}"
+                    echo "Pass Rate: ${passRate}%"
+                    
+                    // Fail build if pass rate is below threshold
+                    if (passRate < 95) {
+                        error("Build failed: Pass rate ${passRate}% is below 95% threshold")
+                    }
+                }
+            }
+        }
+        
+        stage('Cost Report') {
+            agent any
+            steps {
+                script {
+                    // Generate cost report from orchestrator logs
+                    sh '''
+                        python orchestrator/cost_report.py \
+                            --output cost-report.html
+                    '''
+                    
+                    publishHTML([
+                        reportDir: '.',
+                        reportFiles: 'cost-report.html',
+                        reportName: 'Infrastructure Cost Report'
+                    ])
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Cleanup resources
+            script {
+                sh '''
+                    python orchestrator/cleanup.py --force
+                '''
+            }
+        }
+        
+        success {
+            echo 'All tests passed successfully!'
+        }
+        
+        failure {
+            echo 'Tests failed. Check reports for details.'
+        }
+    }
+}
